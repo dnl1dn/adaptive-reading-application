@@ -1,27 +1,41 @@
 import threading
 import webbrowser
 
-import pyttsx3
-import speech_recognition as sr
 import streamlit as st
+
+try:
+    import pyttsx3
+except Exception:
+    pyttsx3 = None
+
+try:
+    import speech_recognition as sr
+except Exception:
+    sr = None
 
 
 class TTSManager:
-    # I kept the speech part in one class because it was easier to stop and restart cleanly that way.
-    def __init__(self):
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._engine = None
         self._thread = None
 
     def _build_engine(self, rate: int):
+        if pyttsx3 is None:
+            return None
+
         engine = pyttsx3.init()
         engine.setProperty("rate", rate)
         engine.setProperty("volume", 1.0)
         return engine
 
-    def _run_speech(self, text: str, rate: int):
+    def _run_speech(self, text: str, rate: int) -> None:
         with self._lock:
             self._engine = self._build_engine(rate)
+
+            if self._engine is None:
+                return
+
             try:
                 self._engine.say(text)
                 self._engine.runAndWait()
@@ -33,10 +47,12 @@ class TTSManager:
                 except Exception:
                     pass
                 self._engine = None
+                self._thread = None
 
-    def speak(self, text: str, rate: int):
-        if not text or not text.strip():
+    def speak(self, text: str, rate: int) -> None:
+        if pyttsx3 is None or not text or not text.strip():
             return
+
         self.stop()
         self._thread = threading.Thread(
             target=self._run_speech,
@@ -45,7 +61,7 @@ class TTSManager:
         )
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         with self._lock:
             if self._engine is not None:
                 try:
@@ -53,26 +69,43 @@ class TTSManager:
                 except Exception:
                     pass
                 self._engine = None
+            self._thread = None
 
 
 @st.cache_resource
-def get_tts_manager():
+def get_tts_manager() -> TTSManager:
     return TTSManager()
 
 
-def read_aloud(text: str):
+def tts_available() -> bool:
+    return pyttsx3 is not None
+
+
+def voice_input_available() -> bool:
+    return sr is not None
+
+
+def read_aloud(text: str) -> None:
+    if pyttsx3 is None:
+        return
+
     rate = int(st.session_state.get("tts_speed", 165))
     get_tts_manager().speak(text, rate)
 
 
-def stop_reading():
+def stop_reading() -> None:
+    if pyttsx3 is None:
+        return
+
     get_tts_manager().stop()
 
 
-recognizer = sr.Recognizer()
+def listen_once() -> str:
+    if sr is None:
+        return ""
 
+    recognizer = sr.Recognizer()
 
-def listen_once():
     try:
         with sr.Microphone() as source:
             recognizer.adjust_for_ambient_noise(source, duration=0.5)
@@ -92,10 +125,13 @@ def clean_voice_query(text: str) -> str:
     for prefix in prefixes:
         if cleaned.startswith(prefix):
             return cleaned.replace(prefix, "", 1).strip()
+
     return cleaned
 
 
-def search_web(query: str):
-    if query and query.strip():
-        url = f"https://www.google.com/search?q={query.strip().replace(' ', '+')}"
-        webbrowser.open(url)
+def search_web(query: str) -> None:
+    if not query or not query.strip():
+        return
+
+    url = f"https://www.google.com/search?q={query.strip().replace(' ', '+')}"
+    webbrowser.open(url)
